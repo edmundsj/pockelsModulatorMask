@@ -1,5 +1,5 @@
 import numpy as np
-import gdspy as gdspy
+import gdspy
 from testStructures import *
 from cellFunctions import *
 
@@ -31,8 +31,6 @@ totalRight = gdspy.boolean(keepoutRight, topMarkRight, 'not')
 cell.add(totalLeft)
 cell.add(totalRight)
 
-# SAVE THE FILE
-lib.write_gds('aml_top_marks.gds')
 
 # Display all cells using the internal viewer.
 #gdspy.LayoutViewer(lib)
@@ -58,10 +56,16 @@ bottomMark.add(bottomSquareTL)
 bottomMark.add(bottomSquareBR)
 bottomMark.add(bottomSquareBL)
 
-bottomMarkLeft = gdspy.CellReference(bottomMark, (-markOffset, 0))
-bottomMarkRight = gdspy.CellReference(bottomMark, (markOffset, 0))
+bottomMarkRight = gdspy.PolygonSet(bottomMark.get_polygons(), layer=2)
+bottomMarkLeft = gdspy.copy(bottomMarkRight)
+
+bottomMarkRight.translate(markOffset, 0)
+bottomMarkLeft.translate(-markOffset, 0)
+
 
 cell.add(bottomMarkLeft)
 cell.add(bottomMarkRight)
+# SAVE THE FILE
+lib.write_gds('aml_marks.gds')
 
-gdspy.LayoutViewer(lib)
+#gdspy.LayoutViewer(lib)
