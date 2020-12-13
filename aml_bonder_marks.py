@@ -68,4 +68,4 @@ cell.add(bottomMarkRight)
 # SAVE THE FILE
 lib.write_gds('aml_marks.gds')
 
-#gdspy.LayoutViewer(lib)
+gdspy.LayoutViewer(lib)
