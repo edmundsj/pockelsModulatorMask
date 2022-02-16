@@ -162,15 +162,16 @@ for i in range(9):
     else:
         trace_start_location = device_coordinates[i] + distance_from_center / np.sqrt(2) * np.array([-1, -1])
 
-    trace_delta_vector = abs(pad_locations[i] - trace_start_location)
-    trace_delta_height = trace_delta_vector[1]
-    trace_delta_width = trace_delta_vector[0] - trace_delta_height
+    trace_delta_vector = pad_locations[i] - trace_start_location
+    trace_delta_height = abs(trace_delta_vector[1])
+    trace_delta_width = abs(trace_delta_vector[0]) - trace_delta_height
     trace_final_location = pad_locations[i]
     trace = gdspy.Path(trace_width, trace_start_location)
     if i < 3:
         trace.segment(trace_delta_height * np.sqrt(2), direction=3/4*np.pi, layer=2)
         trace.turn(trace_width, 1/4*np.pi, layer=2)
         trace.segment(trace_delta_width, direction='-x', layer=2)
+
     elif i == 3:
         trace.segment(trace_delta_height*2/3 * np.sqrt(2), direction=3/4*np.pi, layer=2)
         trace.turn(trace_width, 1/4*np.pi, layer=2)
@@ -187,7 +188,14 @@ for i in range(9):
         trace.segment((trace_delta_height + 1/3*mm)*np.sqrt(2), direction=-3/4*np.pi, layer=2)
         trace.turn(trace_width, 1/4*np.pi, layer=2)
         trace.segment(trace_delta_width*1/3, direction='-x', layer=2)
-    elif i >= 5:
+    elif i == 6:
+        trace.segment(0.1*mm* np.sqrt(2), direction=-3/4*np.pi, layer=2)
+        trace.segment(0.1*mm, direction='-x', layer=2)
+        trace.segment((trace_delta_height+0.1*mm) * np.sqrt(2), direction=3/4*np.pi, layer=2)
+        trace.segment(0.5* np.sqrt(2), direction=3/4*np.pi, layer=2)
+        trace.turn(trace_width, 1/4*np.pi, layer=2)
+        trace.segment(trace_delta_width-0.3*mm, direction='-x', layer=2)
+    elif i >= 5 and i != 6:
         trace.segment(trace_delta_height * np.sqrt(2), direction=-3/4*np.pi, layer=2)
         trace.turn(trace_width, 1/4*np.pi, layer=2)
         trace.segment(trace_delta_width, direction='-x', layer=2)
@@ -251,7 +259,7 @@ layer2Coordinates = myPolygons[(2, 0)]
 # ADD OUR EXISTING MASK SCALED AND SHIFTED APPROPRIATELY.
 reticleLibrary = gdspy.GdsLibrary()
 reticleLibrary.read_gds('asml_templates/asml300-4field_no_lines.gds')
-reticleCell = reticleLibrary.cells['reticle_template']
+reticle_cell = reticleLibrary.cells['reticle_template']
 
 # SEPARATE OUR MASK INTO ITS CONSTITUENT LAYERS, MAGNIFY THEM, AND TRANSLATE THEM.
 layer0Cell = gdspy.Cell('LAYER0') # For some reason this is getting converted into a polygonSet when we attempt
@@ -265,10 +273,6 @@ for coords in layer0Coordinates:
     tempPolygon.translate((-fieldSize - fieldSpacing)/2, (fieldSize + fieldSpacing)/2)
     layer0Cell.add(tempPolygon)
 
-# Invert the mask for layer 0
-layer0Mask =  gdspy.Rectangle([-fieldSpacing/2, fieldSpacing/2],
-        [-fieldSpacing/2 - fieldSize, fieldSpacing/2 + fieldSize])
-#layer0Cell = gdspy.boolean(layer0Mask, layer0Cell, 'not', layer=4)
 
 for coords in layer1Coordinates:
     tempPolygon = gdspy.Polygon(coords, layer=4)
@@ -282,27 +286,51 @@ for coords in layer2Coordinates:
     tempPolygon.translate((-fieldSize - fieldSpacing) / 2, (-fieldSize - fieldSpacing)/2)
     layer2Cell.add(tempPolygon)
 
+# Invert the mask for layer 0
+layer0Mask =  gdspy.Rectangle([-fieldSpacing/2, fieldSpacing/2],
+    [-fieldSpacing/2 - fieldSize, fieldSpacing/2 + fieldSize])
+layer0Cell = gdspy.boolean(layer0Mask, layer0Cell, 'not', layer=4)
+
+# Invert the mask for layer 1
+layer1Mask =  gdspy.Rectangle([fieldSpacing/2, fieldSpacing/2],
+    [fieldSpacing/2 + fieldSize, fieldSpacing/2 + fieldSize])
+layer1Cell = gdspy.boolean(layer1Mask, layer1Cell, 'not', layer=4)
+
+# DO NOT Invert layer 2 mask
 layer2Mask = gdspy.Rectangle([-fieldSpacing/2, -fieldSpacing/2],
-        [-fieldSpacing/2 - fieldSize, -fieldSpacing/2 - fieldSize])
-layer2Cell = gdspy.boolean(layer2Mask, layer2Cell, 'not', layer=4)
+[-fieldSpacing/2 - fieldSize, -fieldSpacing/2 - fieldSize])
+layer2Cell = gdspy.boolean(layer2Mask, layer2Cell, 'and', layer=4)
 
-layer4Mask = gdspy.Rectangle([fieldSpacing/2, -fieldSpacing/2],
-        [fieldSpacing/2 + fieldSize, -fieldSpacing/2 - fieldSize])
-layer4Reference = gdspy.CellReference(layer1Cell, (0, -fieldSize -fieldSpacing))
-layer4Cell = gdspy.boolean(layer4Mask, layer4Reference, 'not', layer=4)
+# Create copy of layer 0 mask and invert it
+layer3Mask = gdspy.Rectangle([fieldSpacing/2, -fieldSpacing/2],
+        [fieldSpacing/2 + fieldSize, -fieldSpacing/2 - fieldSize], layer=0)
+layer3Reference = gdspy.CellReference(layer0Cell, (fieldSize + fieldSpacing, -fieldSize -fieldSpacing))
+layer3Cell = gdspy.copy(layer0Cell, dx=fieldSpacing + fieldSize, dy=-fieldSpacing  - fieldSize)
+layer3Cell = gdspy.boolean(layer3Mask, layer3Cell, 'not', layer=4)
 
-reticleCell.add(layer0Cell)
-reticleCell.add(layer1Cell)
-reticleCell.add(layer2Cell)
-reticleCell.add(layer4Cell)
+reticle_cell.add(layer0Cell)
+reticle_cell.add(layer1Cell)
+reticle_cell.add(layer2Cell)
 
 # BARCODE AND BARCODE TEXT
 barcodeCell, textCell = ASMLBarcodeGenerator.generateBarcodeAndText('JEPCKMOD2')
-reticleCell.add(barcodeCell)
-reticleCell.add(textCell)
+reticle_cell.add(barcodeCell)
+reticle_cell.add(textCell)
 
-# SAVE THE FILE
+
+# Attempt to flip entire mask left-right (required by mla150)
+flipped_library = gdspy.GdsLibrary()
+reticle_flipped = flipped_library.new_cell('TOP')
+polygons = reticle_cell.get_polygonsets()
+for ngon in polygons:
+    ngon.mirror((0, 10))
+    reticle_flipped.add(ngon)
+
+
+# SAVE THE FILES
 reticleLibrary.write_gds('jepckmod2.gds')
+flipped_library.write_gds('jepckmod2_flipped.gds')
+breakpoint()
 
 # Display all cells using the internal viewer.
 #gdspy.LayoutViewer(reticleLibrary)
